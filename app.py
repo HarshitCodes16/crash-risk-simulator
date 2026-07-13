@@ -59,13 +59,12 @@ def get_models():
     try:
         return load_models()
     except Exception:
-        st.info("Saved models weren't compatible with this environment — training fresh models now (takes a few seconds)...")
+        st.info("Saved models weren't compatible with this environment — training fresh models now (a few seconds)...")
         from simulation.generate_dataset import generate_dataset
-        from models.train import train_stage1_classifier, train_stage2_regressor
+        from models.train import train_fast_fallback
 
-        df = generate_dataset(n_samples=4000, seed=42)
-        clf, _, _ = train_stage1_classifier(df)
-        reg, _, _ = train_stage2_regressor(df)
+        df = generate_dataset(n_samples=1500, seed=42)
+        clf, reg = train_fast_fallback(df)
         return clf, reg
 
 

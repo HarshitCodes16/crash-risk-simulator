@@ -1,14 +1,6 @@
 {
-  "stage1_best_model": "RandomForest",
+  "stage1_best_model": "GradientBoosting",
   "stage1_comparison": [
-    {
-      "model": "RandomForest",
-      "accuracy": 0.965,
-      "precision": 0.9752212389380531,
-      "recall": 0.9752212389380531,
-      "f1": 0.9752212389380531,
-      "roc_auc": 0.9962342308416494
-    },
     {
       "model": "GradientBoosting",
       "accuracy": 0.96,
@@ -16,6 +8,14 @@
       "recall": 0.9646017699115044,
       "f1": 0.9714795008912656,
       "roc_auc": 0.9961890416117491
+    },
+    {
+      "model": "RandomForest",
+      "accuracy": 0.96375,
+      "precision": 0.9785714285714285,
+      "recall": 0.9699115044247788,
+      "f1": 0.9742222222222222,
+      "roc_auc": 0.9961626812276407
     },
     {
       "model": "LogisticRegression",
@@ -44,9 +44,9 @@
     },
     {
       "model": "RandomForest",
-      "r2": 0.9514094604108252,
-      "rmse": 197973.20735326578,
-      "mae": 124126.4574768889
+      "r2": 0.9519025889308772,
+      "rmse": 196966.0648705938,
+      "mae": 123226.58657544471
     },
     {
       "model": "DecisionTree",

@@ -47,7 +47,7 @@ def train_stage1_classifier(df):
     candidates = {
         "LogisticRegression": LogisticRegression(max_iter=1000),
         "DecisionTree": DecisionTreeClassifier(random_state=SEED),
-        "RandomForest": RandomForestClassifier(n_estimators=200, random_state=SEED),
+        "RandomForest": RandomForestClassifier(n_estimators=100, random_state=SEED),
         "GradientBoosting": GradientBoostingClassifier(random_state=SEED),
     }
 
@@ -101,7 +101,7 @@ def train_stage2_regressor(df):
     candidates = {
         "LinearRegression": LinearRegression(),
         "DecisionTree": DecisionTreeRegressor(random_state=SEED),
-        "RandomForest": RandomForestRegressor(n_estimators=200, random_state=SEED),
+        "RandomForest": RandomForestRegressor(n_estimators=100, random_state=SEED),
         "GradientBoosting": GradientBoostingRegressor(random_state=SEED),
     }
 
@@ -144,6 +144,28 @@ def plot_feature_importance(model, model_name, stage_label):
         plt.close()
     except OSError:
         pass  # read-only filesystem (e.g. some cloud environments) - safe to skip
+
+
+def train_fast_fallback(df):
+    """
+    Lightweight training path used ONLY as a runtime fallback (e.g. when a
+    deployment environment's scikit-learn version can't unpickle the models
+    trained locally). Skips the full 4-vs-4 model comparison and trains just
+    the single best-known model per stage directly, on a smaller sample, so
+    cold-start on constrained cloud CPUs stays fast (a few seconds instead of
+    minutes).
+    """
+    X = df[FEATURES]
+    y_clf = df["crash"]
+
+    clf = RandomForestClassifier(n_estimators=80, max_depth=12, random_state=SEED)
+    clf.fit(X, y_clf)
+
+    crash_df = df[df["crash"] == 1]
+    reg = GradientBoostingRegressor(n_estimators=80, max_depth=3, random_state=SEED)
+    reg.fit(crash_df[FEATURES], crash_df["impact_force"])
+
+    return clf, reg
 
 
 def main():

@@ -130,21 +130,6 @@ streamlit run app.py
 
 Full metrics saved in `results/metrics_summary.json`.
 
-## Interview talking points
-
-- Reframed the problem from pure regression to a two-stage pipeline
-  (probability of occurrence → conditional severity), similar to how
-  real-world risk assessment systems (insurance, safety) are structured.
-- Modeled weather and traffic as multi-variable dependencies — e.g. rain
-  reduces both friction *and* effective reaction time (visibility), rather
-  than a single relabeled slider.
-- Verified the ML model's output against an independent, deterministic
-  physics formula rather than trusting it blindly — same generator/verifier
-  philosophy applied elsewhere, just rule-based here instead of a second
-  neural model.
-- Speed and vehicle mass dominate the risk model, which lines up with
-  kinetic energy scaling as mass × velocity² — a physics-grounded sanity
-  check on the model's behavior.
 
 ## Future scope (V2, not built)
 

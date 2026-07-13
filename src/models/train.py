@@ -76,12 +76,16 @@ def train_stage1_classifier(df):
     # Confusion matrix for the best model
     best_preds = best_model.predict(X_test)
     cm = confusion_matrix(y_test, best_preds)
-    fig, ax = plt.subplots(figsize=(5, 4))
-    ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["No Crash", "Crash"]).plot(ax=ax, cmap="Blues")
-    plt.title(f"Confusion Matrix - {best_name} (Stage 1)")
-    plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, "stage1_confusion_matrix.png"))
-    plt.close()
+    try:
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["No Crash", "Crash"]).plot(ax=ax, cmap="Blues")
+        plt.title(f"Confusion Matrix - {best_name} (Stage 1)")
+        plt.tight_layout()
+        plt.savefig(os.path.join(RESULTS_DIR, "stage1_confusion_matrix.png"))
+        plt.close()
+    except OSError:
+        pass  # read-only filesystem (e.g. some cloud environments) - safe to skip
 
     return best_model, best_name, comparison_df
 
@@ -126,16 +130,20 @@ def train_stage2_regressor(df):
 def plot_feature_importance(model, model_name, stage_label):
     if not hasattr(model, "feature_importances_"):
         return
-    importances = model.feature_importances_
-    order = np.argsort(importances)[::-1]
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.bar([FEATURES[i] for i in order], importances[order], color="#D85A30")
-    ax.set_title(f"Feature Importance - {model_name} ({stage_label})")
-    plt.xticks(rotation=30)
-    plt.tight_layout()
-    fname = f"{stage_label.lower().replace(' ', '_')}_feature_importance.png"
-    plt.savefig(os.path.join(RESULTS_DIR, fname))
-    plt.close()
+    try:
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+        importances = model.feature_importances_
+        order = np.argsort(importances)[::-1]
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.bar([FEATURES[i] for i in order], importances[order], color="#D85A30")
+        ax.set_title(f"Feature Importance - {model_name} ({stage_label})")
+        plt.xticks(rotation=30)
+        plt.tight_layout()
+        fname = f"{stage_label.lower().replace(' ', '_')}_feature_importance.png"
+        plt.savefig(os.path.join(RESULTS_DIR, fname))
+        plt.close()
+    except OSError:
+        pass  # read-only filesystem (e.g. some cloud environments) - safe to skip
 
 
 def main():

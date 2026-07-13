@@ -48,7 +48,25 @@ PLOTLY_CONFIG = {
 
 @st.cache_resource
 def get_models():
-    return load_models()
+    """
+    Loads the saved models. If they fail to load (e.g. a scikit-learn/Python
+    version mismatch between the machine that trained them and the machine
+    running the app - which is exactly what happens across different
+    deployment environments), fall back to training fresh, in-memory, using
+    whatever library versions are installed here. This makes the app
+    resilient to environment differences instead of crashing on deploy.
+    """
+    try:
+        return load_models()
+    except Exception:
+        st.info("Saved models weren't compatible with this environment — training fresh models now (takes a few seconds)...")
+        from simulation.generate_dataset import generate_dataset
+        from models.train import train_stage1_classifier, train_stage2_regressor
+
+        df = generate_dataset(n_samples=4000, seed=42)
+        clf, _, _ = train_stage1_classifier(df)
+        reg, _, _ = train_stage2_regressor(df)
+        return clf, reg
 
 
 def main():
@@ -196,14 +214,14 @@ def main():
             "Risk vs. Speed (distance held fixed)", "Speed (m/s)",
             speed_result, speed, crash_probability,
         )
-        st.plotly_chart(fig_speed, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig_speed, width='stretch', config=PLOTLY_CONFIG)
 
     with tab2:
         fig_distance = _sweep_chart(
             "Risk vs. Distance (speed held fixed)", "Following distance (m)",
             distance_result, distance, crash_probability,
         )
-        st.plotly_chart(fig_distance, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig_distance, width='stretch', config=PLOTLY_CONFIG)
 
     with tab3:
         st.caption("Pick any of the 6 underlying factors to see how risk changes across its full range, with the current scenario and safe boundary marked.")
@@ -217,7 +235,7 @@ def main():
             f"Risk vs. {FEATURE_LABELS[explore_param]}", FEATURE_LABELS[explore_param],
             explore_result, fixed_values[explore_param], crash_probability,
         )
-        st.plotly_chart(fig_explore, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig_explore, width='stretch', config=PLOTLY_CONFIG)
 
     with st.expander("See sensitivity breakdown for all factors"):
         for param, swing in sorted(swings.items(), key=lambda x: -x[1]):

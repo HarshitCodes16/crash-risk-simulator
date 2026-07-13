@@ -1,0 +1,73 @@
+{
+  "stage1_best_model": "RandomForest",
+  "stage1_comparison": [
+    {
+      "model": "RandomForest",
+      "accuracy": 0.965,
+      "precision": 0.9752212389380531,
+      "recall": 0.9752212389380531,
+      "f1": 0.9752212389380531,
+      "roc_auc": 0.9962342308416494
+    },
+    {
+      "model": "GradientBoosting",
+      "accuracy": 0.96,
+      "precision": 0.9784560143626571,
+      "recall": 0.9646017699115044,
+      "f1": 0.9714795008912656,
+      "roc_auc": 0.9961890416117491
+    },
+    {
+      "model": "LogisticRegression",
+      "accuracy": 0.95625,
+      "precision": 0.9766187050359713,
+      "recall": 0.9610619469026549,
+      "f1": 0.9687778768956289,
+      "roc_auc": 0.992363020146865
+    },
+    {
+      "model": "DecisionTree",
+      "accuracy": 0.91875,
+      "precision": 0.9528985507246377,
+      "recall": 0.9309734513274336,
+      "f1": 0.9418084153983886,
+      "roc_auc": 0.9101675767275466
+    }
+  ],
+  "stage2_best_model": "GradientBoosting",
+  "stage2_comparison": [
+    {
+      "model": "GradientBoosting",
+      "r2": 0.9600587141798342,
+      "rmse": 179490.5461984819,
+      "mae": 118089.0943695022
+    },
+    {
+      "model": "RandomForest",
+      "r2": 0.9514094604108252,
+      "rmse": 197973.20735326578,
+      "mae": 124126.4574768889
+    },
+    {
+      "model": "DecisionTree",
+      "r2": 0.8681256817157823,
+      "rmse": 326144.9602560525,
+      "mae": 203176.71226747823
+    },
+    {
+      "model": "LinearRegression",
+      "r2": 0.8474902631275661,
+      "rmse": 350735.1918879468,
+      "mae": 257556.64826993947
+    }
+  ],
+  "features": [
+    "speed",
+    "distance",
+    "reaction_time",
+    "brake_eff",
+    "friction",
+    "mass"
+  ],
+  "seed": 42
+}

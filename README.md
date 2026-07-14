@@ -1,8 +1,16 @@
 # 🚗 Crash Risk Simulator
 
+## 🌐 Live Demo
+
+[![Live Demo](https://img.shields.io/badge/Live-Demo-success?style=for-the-badge)](https://crash-risk-simulator.streamlit.app/)
+
+Explore the deployed Crash Risk Simulator directly in your browser—no installation required.
+
 A two-stage ML system for predictive driving safety assessment — an interactive
 Streamlit app that predicts crash risk (with a confidence score) and severity
 for a given driving scenario, cross-checked by an independent physics layer.
+
+
 
 > **This is a what-if scenario simulator, not a live telemetry tracker.** It
 > doesn't track a real moving car — the user sets a hypothetical scenario

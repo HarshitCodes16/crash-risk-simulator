@@ -19,7 +19,10 @@ import random
 
 # ---- Base physical ranges (from the original simulation) ----
 BASE_RANGES = {
-    "speed": (10, 40),          # m/s
+    "speed": (1, 40),           # m/s (lower bound widened from 10 to 1 so that
+                                 # relative_speed values in the Dynamic Traffic
+                                 # scenario - which are often small, e.g. 2-9 -
+                                 # aren't out-of-distribution for the model)
     "distance": (5, 220),       # m (widened from the original 5-50 so that, combined with
                                  # the 10-40 m/s speed range, the dataset produces a realistic
                                  # mix of safe-stop and crash outcomes instead of near-always-crash)

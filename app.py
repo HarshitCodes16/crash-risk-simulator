@@ -25,6 +25,9 @@ from models.predict import (
     load_models, predict_risk, sensitivity_sweep, biggest_risk_factor,
     threshold_crossing, FEATURES,
 )
+from utils.weather import (
+    geocode_city, fetch_current_conditions, weather_code_to_category, local_hour_to_time_of_day,
+)
 
 st.set_page_config(page_title="Crash Risk Simulator", page_icon="🚗", layout="centered")
 
@@ -176,6 +179,33 @@ def _render_presets(presets, prefix, is_dynamic):
             if st.button(name, key=f"{prefix}_preset_{name}", width='stretch'):
                 _apply_preset(preset, prefix, is_dynamic)
                 st.rerun()
+
+
+def _render_weather_autofill(prefix):
+    with st.expander("📍 Auto-fill weather & time from a city (optional)"):
+        city = st.text_input("City name", key=f"{prefix}_city_input", placeholder="e.g. Mumbai")
+        if st.button("Fetch current weather", key=f"{prefix}_fetch_weather"):
+            if not city.strip():
+                st.warning("Enter a city name first.")
+            else:
+                with st.spinner("Looking up city and fetching weather..."):
+                    geo = geocode_city(city.strip())
+                if geo is None:
+                    st.error("Couldn't find that city — please select weather/time manually below.")
+                else:
+                    conditions = fetch_current_conditions(geo["lat"], geo["lon"])
+                    if conditions is None:
+                        st.error("Couldn't fetch weather right now — please select manually below.")
+                    else:
+                        category = weather_code_to_category(conditions["weather_code"])
+                        time_cat = local_hour_to_time_of_day(conditions["local_time"])
+                        st.session_state[f"{prefix}_weather"] = category
+                        st.session_state[f"{prefix}_time"] = time_cat
+                        temp = conditions["temperature"]
+                        st.success(
+                            f"Detected **{category}**, **{time_cat}** in {geo['name']}, "
+                            f"{geo['country']} ({temp}°C) — updated below."
+                        )
 
 
 def render_risk_assessment(clf, reg, speed_label, speed_value, distance, weather, road_type, time_of_day, vehicle_type):
@@ -373,6 +403,7 @@ def render_emergency_braking(clf, reg):
     )
 
     _render_presets(PRESETS_EB, "eb", is_dynamic=False)
+    _render_weather_autofill("eb")
 
     st.subheader("Scenario inputs")
     col1, col2 = st.columns(2)
@@ -409,6 +440,7 @@ def render_dynamic_traffic(clf, reg):
     )
 
     _render_presets(PRESETS_DT, "dt", is_dynamic=True)
+    _render_weather_autofill("dt")
 
     st.subheader("Scenario inputs")
     col1, col2 = st.columns(2)

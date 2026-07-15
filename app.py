@@ -2,18 +2,19 @@
 Crash Risk Simulator - Streamlit App
 --------------------------------------
 A what-if scenario simulator (NOT a live telemetry tracker). Home page lets
-the user pick between two scenarios:
-  - Emergency Braking: the car ahead suddenly stops (original scenario)
-  - Dynamic Traffic: both vehicles are moving, risk depends on relative speed
+the user pick between scenarios, explore model evaluation, or try quiz mode.
 """
 
 import os
 import sys
+import json
+import random
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
 import streamlit as st
 import plotly.graph_objects as go
+import numpy as np
 
 from simulation.dependency_map import (
     BASE_RANGES, WEATHER_OPTIONS, ROAD_OPTIONS, TIME_OPTIONS, VEHICLE_OPTIONS,
@@ -50,6 +51,25 @@ PLOTLY_CONFIG = {
     "displayModeBar": True,
     "displaylogo": False,
     "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+}
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
+
+PRESETS_EB = {
+    "🌧️ Heavy Rain": {"weather": "Rainy", "road": "City", "time": "Day", "vehicle": "Sedan", "speed_kmh": 60.0, "distance": 15.0},
+    "🌫️ Fog": {"weather": "Foggy", "road": "Highway", "time": "Day", "vehicle": "Sedan", "speed_kmh": 70.0, "distance": 20.0},
+    "🌙 Night Highway": {"weather": "Sunny", "road": "Highway", "time": "Night", "vehicle": "Sedan", "speed_kmh": 110.0, "distance": 40.0},
+    "🚦 Traffic Jam": {"weather": "Sunny", "road": "City", "time": "Day", "vehicle": "Hatchback", "speed_kmh": 15.0, "distance": 5.0},
+    "🏫 School Zone": {"weather": "Sunny", "road": "City", "time": "Day", "vehicle": "Sedan", "speed_kmh": 25.0, "distance": 10.0},
+}
+
+PRESETS_DT = {
+    "🌧️ Heavy Rain": {"weather": "Rainy", "road": "City", "time": "Day", "vehicle": "Sedan", "your_speed_kmh": 70.0, "traffic_speed_kmh": 55.0, "distance": 15.0},
+    "🌫️ Fog": {"weather": "Foggy", "road": "Highway", "time": "Day", "vehicle": "Sedan", "your_speed_kmh": 90.0, "traffic_speed_kmh": 75.0, "distance": 25.0},
+    "🌙 Night Highway": {"weather": "Sunny", "road": "Highway", "time": "Night", "vehicle": "Sedan", "your_speed_kmh": 120.0, "traffic_speed_kmh": 100.0, "distance": 35.0},
+    "🚦 Traffic Jam": {"weather": "Sunny", "road": "City", "time": "Day", "vehicle": "Hatchback", "your_speed_kmh": 20.0, "traffic_speed_kmh": 8.0, "distance": 6.0},
+    "🏫 School Zone": {"weather": "Sunny", "road": "City", "time": "Day", "vehicle": "Sedan", "your_speed_kmh": 35.0, "traffic_speed_kmh": 25.0, "distance": 10.0},
 }
 
 
@@ -105,6 +125,25 @@ def _sweep_chart(title, x_label, result, current_x, current_prob, is_speed=False
     return fig
 
 
+def _risk_bar_chart(swings, speed_label):
+    labels = []
+    values = []
+    for param, swing in sorted(swings.items(), key=lambda x: x[1]):
+        labels.append(FEATURE_LABELS[param] if param != "speed" else speed_label)
+        values.append(swing * 100)
+    fig = go.Figure(go.Bar(
+        x=values, y=labels, orientation="h",
+        marker=dict(color="#D85A30"),
+        text=[f"{v:.1f} pts" for v in values], textposition="outside",
+    ))
+    fig.update_layout(
+        title="Risk contribution — how much each factor swings crash probability",
+        xaxis_title="Percentage-point swing", height=300,
+        margin=dict(l=10, r=10, t=40, b=10),
+    )
+    return fig
+
+
 def _param_ranges():
     return {
         "speed": BASE_RANGES["speed"],
@@ -114,6 +153,29 @@ def _param_ranges():
         "friction": (0.1, 1.0),
         "mass": (700, 3500),
     }
+
+
+def _apply_preset(preset, prefix, is_dynamic):
+    st.session_state[f"{prefix}_weather"] = preset["weather"]
+    st.session_state[f"{prefix}_road"] = preset["road"]
+    st.session_state[f"{prefix}_time"] = preset["time"]
+    st.session_state[f"{prefix}_vehicle"] = preset["vehicle"]
+    if is_dynamic:
+        st.session_state[f"{prefix}_your_speed"] = preset["your_speed_kmh"]
+        st.session_state[f"{prefix}_traffic_speed"] = preset["traffic_speed_kmh"]
+    else:
+        st.session_state[f"{prefix}_speed"] = preset["speed_kmh"]
+    st.session_state[f"{prefix}_distance"] = preset["distance"]
+
+
+def _render_presets(presets, prefix, is_dynamic):
+    st.caption("Quick presets:")
+    cols = st.columns(len(presets))
+    for col, (name, preset) in zip(cols, presets.items()):
+        with col:
+            if st.button(name, key=f"{prefix}_preset_{name}", width='stretch'):
+                _apply_preset(preset, prefix, is_dynamic)
+                st.rerun()
 
 
 def render_risk_assessment(clf, reg, speed_label, speed_value, distance, weather, road_type, time_of_day, vehicle_type):
@@ -129,8 +191,6 @@ def render_risk_assessment(clf, reg, speed_label, speed_value, distance, weather
     mass = derived["mass"]
     brake_eff = derived["brake_eff"]
 
-    # If closing speed is zero or negative (e.g. moving apart in Dynamic
-    # Traffic mode), there is no physical way to collide - skip the model.
     if speed_value <= 0:
         st.success("✅ You're not closing the gap — no collision risk in this scenario.")
         return
@@ -177,15 +237,42 @@ def render_risk_assessment(clf, reg, speed_label, speed_value, distance, weather
     biggest, swings = biggest_risk_factor(clf, fixed_values, param_ranges)
     st.write(f"⚡ **Biggest risk factor right now:** {FEATURE_LABELS[biggest] if biggest != 'speed' else speed_label}")
 
+    st.plotly_chart(_risk_bar_chart(swings, speed_label), width='stretch', config=PLOTLY_CONFIG)
+
     speed_result = threshold_crossing(clf, "speed", BASE_RANGES["speed"], fixed_values, threshold=RISK_THRESHOLD)
     safe_speed = speed_result["safe_value"]
+    distance_result = threshold_crossing(clf, "distance", BASE_RANGES["distance"], fixed_values, threshold=RISK_THRESHOLD)
+    safe_distance = distance_result["safe_value"]
+
+    # --- Recommendation engine ---
+    if crash_probability >= RISK_THRESHOLD:
+        st.subheader("💡 Recommendations")
+        if safe_speed is not None and safe_speed < speed_value:
+            prob_at_safe = float(np.interp(safe_speed, speed_result["x_values"], speed_result["probabilities"]))
+            delta_kmh = ms_to_kmh(speed_value - safe_speed)
+            st.info(
+                f"**Reduce {speed_label.lower()} by {delta_kmh:.0f} km/h** "
+                f"(to {ms_to_kmh(safe_speed):.0f} km/h) → crash probability drops "
+                f"from {crash_probability*100:.0f}% to about {prob_at_safe*100:.0f}%."
+            )
+        if safe_distance is not None and safe_distance > distance:
+            prob_at_safe_d = float(np.interp(safe_distance, distance_result["x_values"], distance_result["probabilities"]))
+            delta_m = safe_distance - distance
+            st.info(
+                f"**Increase following distance by {delta_m:.0f} m** "
+                f"(to {safe_distance:.0f} m) → crash probability drops "
+                f"from {crash_probability*100:.0f}% to about {prob_at_safe_d*100:.0f}%."
+            )
+        if safe_speed is None and safe_distance is None:
+            st.error("No single adjustment within the available range makes this scenario safe — conditions are too severe.")
+    else:
+        st.success(f"✅ No changes needed — this scenario is already under the {RISK_THRESHOLD*100:.0f}% risk threshold.")
+
     if safe_speed is not None:
         st.info(f"🛡️ Keep {speed_label.lower()} under **{ms_to_kmh(safe_speed):.0f} km/h** to stay below {RISK_THRESHOLD*100:.0f}% risk in these conditions.")
     else:
         st.error(f"🛡️ Even the minimum {speed_label.lower()} is unsafe in these conditions.")
 
-    distance_result = threshold_crossing(clf, "distance", BASE_RANGES["distance"], fixed_values, threshold=RISK_THRESHOLD)
-    safe_distance = distance_result["safe_value"]
     if safe_distance is not None:
         st.info(f"🛡️ Keep at least **{safe_distance:.0f} m** of following distance to stay below {RISK_THRESHOLD*100:.0f}% risk.")
     else:
@@ -227,11 +314,6 @@ def render_risk_assessment(clf, reg, speed_label, speed_value, distance, weather
         )
         st.plotly_chart(fig_explore, width='stretch', config=PLOTLY_CONFIG)
 
-    with st.expander("See sensitivity breakdown for all factors"):
-        for param, swing in sorted(swings.items(), key=lambda x: -x[1]):
-            label = FEATURE_LABELS[param] if param != "speed" else speed_label
-            st.write(f"- **{label}**: {swing*100:.1f} percentage-point swing")
-
 
 def render_home():
     st.title("🚗 Crash Risk Simulator")
@@ -261,6 +343,23 @@ def render_home():
                 st.session_state.view = "dynamic"
                 st.rerun()
 
+    st.write("")
+    col3, col4 = st.columns(2)
+    with col3:
+        with st.container(border=True):
+            st.subheader("🎯 Quiz Mode")
+            st.write("Guess the crash risk before the model reveals it. Test your driving-safety intuition.")
+            if st.button("Play Quiz →", width='stretch'):
+                st.session_state.view = "quiz"
+                st.rerun()
+    with col4:
+        with st.container(border=True):
+            st.subheader("📊 Model Evaluation")
+            st.write("See how the underlying models were trained, compared, and evaluated.")
+            if st.button("View Dashboard →", width='stretch'):
+                st.session_state.view = "evaluation"
+                st.rerun()
+
 
 def render_emergency_braking(clf, reg):
     if st.button("← Back to home"):
@@ -273,14 +372,16 @@ def render_emergency_braking(clf, reg):
         "brakes. Set a hypothetical scenario and see the predicted crash risk."
     )
 
+    _render_presets(PRESETS_EB, "eb", is_dynamic=False)
+
     st.subheader("Scenario inputs")
     col1, col2 = st.columns(2)
     with col1:
-        weather = st.selectbox("🌦️ Weather", WEATHER_OPTIONS, index=0, key="eb_weather")
-        time_of_day = st.selectbox("🌙 Time of day", TIME_OPTIONS, index=0, key="eb_time")
+        weather = st.selectbox("🌦️ Weather", WEATHER_OPTIONS, key="eb_weather")
+        time_of_day = st.selectbox("🌙 Time of day", TIME_OPTIONS, key="eb_time")
     with col2:
-        road_type = st.selectbox("🛣️ Road type", ROAD_OPTIONS, index=1, key="eb_road")
-        vehicle_type = st.selectbox("🚙 Vehicle type", VEHICLE_OPTIONS, index=1, key="eb_vehicle")
+        road_type = st.selectbox("🛣️ Road type", ROAD_OPTIONS, key="eb_road")
+        vehicle_type = st.selectbox("🚙 Vehicle type", VEHICLE_OPTIONS, key="eb_vehicle")
 
     speed_kmh = st.slider("Speed (km/h)", float(ms_to_kmh(BASE_RANGES["speed"][0])), float(ms_to_kmh(BASE_RANGES["speed"][1])), 90.0, key="eb_speed")
     speed = kmh_to_ms(speed_kmh)
@@ -307,14 +408,16 @@ def render_dynamic_traffic(clf, reg):
         "**Emergency Braking** scenario instead, with your actual speed."
     )
 
+    _render_presets(PRESETS_DT, "dt", is_dynamic=True)
+
     st.subheader("Scenario inputs")
     col1, col2 = st.columns(2)
     with col1:
-        weather = st.selectbox("🌦️ Weather", WEATHER_OPTIONS, index=0, key="dt_weather")
-        time_of_day = st.selectbox("🌙 Time of day", TIME_OPTIONS, index=0, key="dt_time")
+        weather = st.selectbox("🌦️ Weather", WEATHER_OPTIONS, key="dt_weather")
+        time_of_day = st.selectbox("🌙 Time of day", TIME_OPTIONS, key="dt_time")
     with col2:
-        road_type = st.selectbox("🛣️ Road type", ROAD_OPTIONS, index=1, key="dt_road")
-        vehicle_type = st.selectbox("🚙 Vehicle type", VEHICLE_OPTIONS, index=1, key="dt_vehicle")
+        road_type = st.selectbox("🛣️ Road type", ROAD_OPTIONS, key="dt_road")
+        vehicle_type = st.selectbox("🚙 Vehicle type", VEHICLE_OPTIONS, key="dt_vehicle")
 
     your_speed_kmh = st.slider("Your speed (km/h)", float(ms_to_kmh(BASE_RANGES["speed"][0])), float(ms_to_kmh(BASE_RANGES["speed"][1])), 108.0, key="dt_your_speed")
     traffic_speed_kmh = st.slider("Traffic ahead speed (km/h)", float(ms_to_kmh(BASE_RANGES["speed"][0])), float(ms_to_kmh(BASE_RANGES["speed"][1])), 100.0, key="dt_traffic_speed")
@@ -332,6 +435,127 @@ def render_dynamic_traffic(clf, reg):
         st.caption("This is the speed that actually matters for collision risk here — not your raw speedometer reading.")
 
     render_risk_assessment(clf, reg, "Relative speed", relative_speed, distance, weather, road_type, time_of_day, vehicle_type)
+
+
+def _random_scenario():
+    return {
+        "weather": random.choice(WEATHER_OPTIONS),
+        "road_type": random.choice(ROAD_OPTIONS),
+        "time_of_day": random.choice(TIME_OPTIONS),
+        "vehicle_type": random.choice(VEHICLE_OPTIONS),
+        "speed_kmh": round(random.uniform(ms_to_kmh(BASE_RANGES["speed"][0]) + 10, ms_to_kmh(BASE_RANGES["speed"][1])), 0),
+        "distance": round(random.uniform(*BASE_RANGES["distance"]), 0),
+    }
+
+
+def render_quiz(clf, reg):
+    if st.button("← Back to home"):
+        st.session_state.view = "home"
+        st.rerun()
+
+    st.title("🎯 Quiz Mode")
+    st.caption("A scenario is shown below. Guess the crash probability before revealing the model's prediction.")
+
+    if "quiz_scenario" not in st.session_state:
+        st.session_state.quiz_scenario = _random_scenario()
+        st.session_state.quiz_revealed = False
+    if "quiz_score" not in st.session_state:
+        st.session_state.quiz_score = 0
+        st.session_state.quiz_rounds = 0
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Total score", st.session_state.quiz_score)
+    with c2:
+        st.metric("Rounds played", st.session_state.quiz_rounds)
+
+    sc = st.session_state.quiz_scenario
+    st.divider()
+    st.subheader("Scenario")
+    st.write(
+        f"- 🌦️ Weather: **{sc['weather']}**\n"
+        f"- 🛣️ Road type: **{sc['road_type']}**\n"
+        f"- 🌙 Time of day: **{sc['time_of_day']}**\n"
+        f"- 🚙 Vehicle: **{sc['vehicle_type']}**\n"
+        f"- Speed: **{sc['speed_kmh']:.0f} km/h**\n"
+        f"- Following distance: **{sc['distance']:.0f} m**"
+    )
+
+    guess = st.slider("Your guess: crash probability (%)", 0, 100, 50, key="quiz_guess", disabled=st.session_state.quiz_revealed)
+
+    if not st.session_state.quiz_revealed:
+        if st.button("Reveal prediction", type="primary"):
+            st.session_state.quiz_revealed = True
+            st.rerun()
+    else:
+        derived = derived_params_midpoint(sc["weather"], sc["road_type"], sc["time_of_day"], sc["vehicle_type"])
+        speed_ms = kmh_to_ms(sc["speed_kmh"])
+        actual_prob, _ = predict_risk(
+            clf, reg, speed_ms, sc["distance"], derived["reaction_time"],
+            derived["brake_eff"], derived["friction"], derived["mass"],
+        )
+        actual_pct = actual_prob * 100
+        diff = abs(guess - actual_pct)
+        points = max(0, round(100 - diff))
+
+        st.divider()
+        st.metric("Model's actual crash probability", f"{actual_pct:.0f}%")
+        st.write(f"Your guess: **{guess}%** — off by **{diff:.0f} points** → **+{points} points**")
+
+        if diff <= 10:
+            st.success("🎯 Great intuition!")
+        elif diff <= 25:
+            st.info("Not bad — getting there.")
+        else:
+            st.warning("Pretty far off — try exploring the sweep charts in the scenarios to build intuition.")
+
+        if st.button("Next scenario →", type="primary"):
+            st.session_state.quiz_score += points
+            st.session_state.quiz_rounds += 1
+            st.session_state.quiz_scenario = _random_scenario()
+            st.session_state.quiz_revealed = False
+            st.rerun()
+
+
+def render_evaluation_dashboard():
+    if st.button("← Back to home"):
+        st.session_state.view = "home"
+        st.rerun()
+
+    st.title("📊 Model Evaluation Dashboard")
+    st.caption("How the underlying Stage 1 (classifier) and Stage 2 (regressor) models were trained and compared.")
+
+    metrics_path = os.path.join(RESULTS_DIR, "metrics_summary.json")
+    if not os.path.exists(metrics_path):
+        st.warning("No metrics_summary.json found — run `python src/models/train.py` locally to generate evaluation artifacts.")
+        return
+
+    with open(metrics_path) as f:
+        metrics = json.load(f)
+
+    st.subheader("Stage 1 — Crash Classifier")
+    st.write(f"**Best model: {metrics['stage1_best_model']}** — chosen for the best ROC-AUC among candidates.")
+    st.dataframe(metrics["stage1_comparison"], width='stretch')
+
+    cm_path = os.path.join(RESULTS_DIR, "stage1_confusion_matrix.png")
+    if os.path.exists(cm_path):
+        st.image(cm_path, caption="Confusion Matrix — Stage 1", width='content')
+
+    fi1_path = os.path.join(RESULTS_DIR, "stage_1_classifier_feature_importance.png")
+    if os.path.exists(fi1_path):
+        st.image(fi1_path, caption="Feature Importance — Stage 1", width='content')
+
+    st.divider()
+    st.subheader("Stage 2 — Severity Regressor")
+    st.write(f"**Best model: {metrics['stage2_best_model']}** — chosen for the best R² among candidates.")
+    st.dataframe(metrics["stage2_comparison"], width='stretch')
+
+    fi2_path = os.path.join(RESULTS_DIR, "stage_2_regressor_feature_importance.png")
+    if os.path.exists(fi2_path):
+        st.image(fi2_path, caption="Feature Importance — Stage 2", width='content')
+
+    st.divider()
+    st.caption(f"Features used: {', '.join(metrics['features'])} · Random seed: {metrics['seed']}")
 
 
 def main():
@@ -355,6 +579,10 @@ def main():
         render_emergency_braking(clf, reg)
     elif st.session_state.view == "dynamic":
         render_dynamic_traffic(clf, reg)
+    elif st.session_state.view == "quiz":
+        render_quiz(clf, reg)
+    elif st.session_state.view == "evaluation":
+        render_evaluation_dashboard()
 
 
 if __name__ == "__main__":

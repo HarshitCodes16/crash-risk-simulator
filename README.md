@@ -1,8 +1,16 @@
 # 🚗 Crash Risk Simulator
 
+## 🌐 Live Demo
+
+[![Live Demo](https://img.shields.io/badge/Live-Demo-success?style=for-the-badge)](https://crash-risk-simulator.streamlit.app/)
+
+Explore the deployed Crash Risk Simulator directly in your browser—no installation required.
+
 A two-stage ML system for predictive driving safety assessment — an interactive
 Streamlit app that predicts crash risk (with a confidence score) and severity
 for a given driving scenario, cross-checked by an independent physics layer.
+
+
 
 > **This is a what-if scenario simulator, not a live telemetry tracker.** It
 > doesn't track a real moving car — the user sets a hypothetical scenario
@@ -129,22 +137,6 @@ streamlit run app.py
 | LinearRegression | 0.847 | 350,735 | 257,557 |
 
 Full metrics saved in `results/metrics_summary.json`.
-
-## Interview talking points
-
-- Reframed the problem from pure regression to a two-stage pipeline
-  (probability of occurrence → conditional severity), similar to how
-  real-world risk assessment systems (insurance, safety) are structured.
-- Modeled weather and traffic as multi-variable dependencies — e.g. rain
-  reduces both friction *and* effective reaction time (visibility), rather
-  than a single relabeled slider.
-- Verified the ML model's output against an independent, deterministic
-  physics formula rather than trusting it blindly — same generator/verifier
-  philosophy applied elsewhere, just rule-based here instead of a second
-  neural model.
-- Speed and vehicle mass dominate the risk model, which lines up with
-  kinetic energy scaling as mass × velocity² — a physics-grounded sanity
-  check on the model's behavior.
 
 ## Future scope (V2, not built)
 

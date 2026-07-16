@@ -15,6 +15,10 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 import streamlit as st
 import plotly.graph_objects as go
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from io import BytesIO
 
 from simulation.dependency_map import (
     BASE_RANGES, WEATHER_OPTIONS, ROAD_OPTIONS, TIME_OPTIONS, VEHICLE_OPTIONS,
@@ -128,6 +132,25 @@ def _sweep_chart(title, x_label, result, current_x, current_prob, is_speed=False
     return fig
 
 
+def _swings_chart_png(swings, speed_label):
+    """Static (non-interactive) version of the risk-contribution bar chart,
+    rendered with matplotlib specifically so it can be embedded as an image
+    in the PDF export (Plotly charts need the heavy 'kaleido' package to
+    export as static images, which we're deliberately avoiding here)."""
+    labels, values = [], []
+    for param, swing in sorted(swings.items(), key=lambda x: x[1]):
+        labels.append(FEATURE_LABELS[param] if param != "speed" else speed_label)
+        values.append(swing * 100)
+    fig, ax = plt.subplots(figsize=(6, 3))
+    ax.barh(labels, values, color="#D85A30")
+    ax.set_xlabel("Percentage-point swing")
+    plt.tight_layout()
+    buf = BytesIO()
+    plt.savefig(buf, format="png", dpi=120)
+    plt.close(fig)
+    return buf.getvalue()
+
+
 def _risk_bar_chart(swings, speed_label):
     labels = []
     values = []
@@ -219,7 +242,7 @@ def _render_weather_autofill(prefix):
                 )
 
 
-def render_risk_assessment(clf, reg, speed_label, speed_value, distance, weather, road_type, time_of_day, vehicle_type):
+def render_risk_assessment(clf, reg, mode_name, speed_label, speed_value, distance, weather, road_type, time_of_day, vehicle_type):
     """
     Shared risk-assessment block used by BOTH scenarios. `speed_value` is
     whatever quantity actually represents the closing/approach speed for that
@@ -286,24 +309,29 @@ def render_risk_assessment(clf, reg, speed_label, speed_value, distance, weather
     safe_distance = distance_result["safe_value"]
 
     # --- Recommendation engine ---
+    recommendations_list = []
     if crash_probability >= RISK_THRESHOLD:
         st.subheader("💡 Recommendations")
         if safe_speed is not None and safe_speed < speed_value:
             prob_at_safe = float(np.interp(safe_speed, speed_result["x_values"], speed_result["probabilities"]))
             delta_kmh = ms_to_kmh(speed_value - safe_speed)
-            st.info(
-                f"**Reduce {speed_label.lower()} by {delta_kmh:.0f} km/h** "
-                f"(to {ms_to_kmh(safe_speed):.0f} km/h) → crash probability drops "
+            rec_text = (
+                f"Reduce {speed_label.lower()} by {delta_kmh:.0f} km/h "
+                f"(to {ms_to_kmh(safe_speed):.0f} km/h) — crash probability drops "
                 f"from {crash_probability*100:.0f}% to about {prob_at_safe*100:.0f}%."
             )
+            recommendations_list.append(rec_text)
+            st.info(f"**{rec_text}**")
         if safe_distance is not None and safe_distance > distance:
             prob_at_safe_d = float(np.interp(safe_distance, distance_result["x_values"], distance_result["probabilities"]))
             delta_m = safe_distance - distance
-            st.info(
-                f"**Increase following distance by {delta_m:.0f} m** "
-                f"(to {safe_distance:.0f} m) → crash probability drops "
+            rec_text = (
+                f"Increase following distance by {delta_m:.0f} m "
+                f"(to {safe_distance:.0f} m) — crash probability drops "
                 f"from {crash_probability*100:.0f}% to about {prob_at_safe_d*100:.0f}%."
             )
+            recommendations_list.append(rec_text)
+            st.info(f"**{rec_text}**")
         if safe_speed is None and safe_distance is None:
             st.error("No single adjustment within the available range makes this scenario safe — conditions are too severe.")
     else:
@@ -354,6 +382,38 @@ def render_risk_assessment(clf, reg, speed_label, speed_value, distance, weather
             explore_result, fixed_values[explore_param], crash_probability, is_speed=explore_is_speed,
         )
         st.plotly_chart(fig_explore, width='stretch', config=PLOTLY_CONFIG)
+
+    st.divider()
+    verification_labels = {
+        "agree": "ML and physics agree - high confidence",
+        "uncertain": "Borderline - near decision threshold",
+        "disagree": "ML and physics disagree - use caution",
+    }
+    pdf_scenario = {
+        "mode": mode_name, "speed_label": speed_label, "speed_kmh": ms_to_kmh(speed_value),
+        "distance": distance, "weather": weather, "road_type": road_type,
+        "time_of_day": time_of_day, "vehicle_type": vehicle_type,
+    }
+    pdf_results = {
+        "crash_probability": crash_probability,
+        "severity": severity if crash_probability >= RISK_THRESHOLD else None,
+        "verification_status": verification_labels[verification["status"]],
+        "biggest_factor": FEATURE_LABELS[biggest] if biggest != "speed" else speed_label,
+        "recommendations": recommendations_list,
+        "safe_speed_kmh": ms_to_kmh(safe_speed) if safe_speed is not None else None,
+        "safe_distance": safe_distance,
+        "chart_image_bytes": _swings_chart_png(swings, speed_label),
+    }
+    try:
+        from utils.pdf_report import generate_scenario_pdf
+        pdf_bytes = generate_scenario_pdf(pdf_scenario, pdf_results)
+        st.download_button(
+            "📄 Download this scenario as PDF", data=pdf_bytes,
+            file_name=f"crash_risk_report_{mode_name.lower().replace(' ', '_')}.pdf",
+            mime="application/pdf",
+        )
+    except Exception as e:
+        st.caption(f"PDF export isn't available right now ({e}).")
 
 
 def render_home():
@@ -429,7 +489,7 @@ def render_emergency_braking(clf, reg):
     speed = kmh_to_ms(speed_kmh)
     distance = st.slider("Following distance (m)", float(BASE_RANGES["distance"][0]), float(BASE_RANGES["distance"][1]), 20.0, key="eb_distance")
 
-    render_risk_assessment(clf, reg, "Speed", speed, distance, weather, road_type, time_of_day, vehicle_type)
+    render_risk_assessment(clf, reg, "Emergency Braking", "Speed", speed, distance, weather, road_type, time_of_day, vehicle_type)
 
 
 def render_dynamic_traffic(clf, reg):
@@ -477,7 +537,7 @@ def render_dynamic_traffic(clf, reg):
     else:
         st.caption("This is the speed that actually matters for collision risk here — not your raw speedometer reading.")
 
-    render_risk_assessment(clf, reg, "Relative speed", relative_speed, distance, weather, road_type, time_of_day, vehicle_type)
+    render_risk_assessment(clf, reg, "Dynamic Traffic", "Relative speed", relative_speed, distance, weather, road_type, time_of_day, vehicle_type)
 
 
 def _random_scenario():

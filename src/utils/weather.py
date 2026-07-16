@@ -47,6 +47,31 @@ def geocode_city(city_name, timeout=6):
         return None
 
 
+def geocode_city_suggestions(city_name, count=5, timeout=6):
+    """
+    Returns a list of matching cities (up to `count`) for autocomplete-style
+    selection, so the user picks a real match instead of relying on getting
+    the spelling exactly right. Returns [] on no matches or any failure.
+    """
+    try:
+        resp = requests.get(GEOCODE_URL, params={"name": city_name, "count": count}, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("results") or []
+        return [
+            {
+                "lat": r["latitude"],
+                "lon": r["longitude"],
+                "name": r.get("name", city_name),
+                "admin1": r.get("admin1", ""),
+                "country": r.get("country", ""),
+            }
+            for r in results
+        ]
+    except Exception:
+        return []
+
+
 def fetch_current_conditions(lat, lon, timeout=6):
     """Returns {'weather_code', 'temperature', 'local_time'} or None on failure."""
     try:

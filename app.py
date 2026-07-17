@@ -15,6 +15,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 import streamlit as st
 import plotly.graph_objects as go
 import numpy as np
+import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -32,6 +33,7 @@ from models.predict import (
 from utils.weather import (
     geocode_city_suggestions, fetch_current_conditions, weather_code_to_category, local_hour_to_time_of_day,
 )
+from utils.explain import explain_prediction
 
 st.set_page_config(page_title="Crash Risk Simulator", page_icon="🚗", layout="centered")
 
@@ -98,6 +100,23 @@ def get_models():
         df = generate_dataset(n_samples=1500, seed=42)
         clf, reg = train_fast_fallback(df)
         return clf, reg
+
+
+@st.cache_data
+def get_background_sample():
+    """
+    A small sample of scenario data used as SHAP's reference background
+    distribution. Tries the saved dataset first; falls back to generating a
+    small fresh one so this never blocks the app if the CSV isn't present.
+    """
+    try:
+        import pandas as pd
+        df = pd.read_csv(os.path.join(BASE_DIR, "data", "crash_simulation_data_v2.csv"))
+        return df[FEATURES].sample(min(40, len(df)), random_state=42)
+    except Exception:
+        from simulation.generate_dataset import generate_dataset
+        df = generate_dataset(n_samples=200, seed=1)
+        return df[FEATURES].sample(min(40, len(df)), random_state=42)
 
 
 def _sweep_chart(title, x_label, result, current_x, current_prob, is_speed=False):
@@ -382,6 +401,39 @@ def render_risk_assessment(clf, reg, mode_name, speed_label, speed_value, distan
             explore_result, fixed_values[explore_param], crash_probability, is_speed=explore_is_speed,
         )
         st.plotly_chart(fig_explore, width='stretch', config=PLOTLY_CONFIG)
+
+    # --- Per-scenario SHAP explanation (on-demand, since it can be slow for some model types) ---
+    st.divider()
+    st.subheader("🔍 Explain this specific prediction")
+    st.caption(
+        "The risk contribution bars above show what generally matters across "
+        "the full range. This instead explains *this exact scenario*: how much "
+        "did each factor push today's prediction up or down from the model's "
+        "average baseline?"
+    )
+    if st.button("Compute explanation", key=f"shap_button_{speed_label}"):
+        with st.spinner("Computing per-scenario explanation (can take a few seconds)..."):
+            background_df = get_background_sample()
+            explanation = explain_prediction(clf, background_df, pd.DataFrame([fixed_values])[FEATURES])
+        if explanation is None:
+            st.caption("A per-scenario explanation isn't available right now for this model.")
+        else:
+            labels, values = [], []
+            for param, val in sorted(explanation["values"].items(), key=lambda x: x[1]):
+                labels.append(FEATURE_LABELS[param] if param != "speed" else speed_label)
+                values.append(val * 100)
+            colors = ["#2E7D32" if v < 0 else "#D85A30" for v in values]
+            fig_shap = go.Figure(go.Bar(
+                x=values, y=labels, orientation="h", marker=dict(color=colors),
+                text=[f"{v:+.1f} pts" for v in values], textposition="outside",
+            ))
+            fig_shap.update_layout(
+                title=f"Baseline {explanation['base']*100:.0f}% → this scenario {crash_probability*100:.0f}%",
+                xaxis_title="Contribution to crash probability (percentage points)",
+                height=300, margin=dict(l=10, r=10, t=40, b=10),
+            )
+            st.plotly_chart(fig_shap, width='stretch', config=PLOTLY_CONFIG)
+            st.caption("Green bars pushed risk down for this scenario; orange bars pushed it up.")
 
     st.divider()
     verification_labels = {

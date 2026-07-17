@@ -125,8 +125,6 @@ Full comparison, confusion matrix, and feature-importance plots are viewable liv
 
 ## Screenshots
 
-> Save your screenshots into a `screenshots/` folder in the repo root with the filenames below, and they'll render automatically here.
-
 **Home page**
 ![Home](screenshots/home.png)
 

@@ -89,17 +89,26 @@ def get_models():
     version mismatch between the machine that trained them and the machine
     running the app), fall back to training fresh, in-memory, using whatever
     library versions are installed here.
+
+    IMPORTANT: this function must never call a Streamlit UI element (st.*)
+    directly - Streamlit's cache "replay" mechanism re-executes any UI calls
+    made inside a @st.cache_resource function on every cache hit, tied to a
+    specific layout block. On a fresh script run after a redeploy/reboot,
+    that original block no longer exists, which raises a hard
+    CacheReplayClosureError and crashes the whole app. Any user-facing
+    feedback about what happened here must be shown OUTSIDE this function,
+    driven by its return value instead.
     """
     try:
-        return load_models()
+        clf, reg = load_models()
+        return clf, reg, False
     except Exception:
-        st.toast("Setting up the model for this session...", icon="⚙️")
         from simulation.generate_dataset import generate_dataset
         from models.train import train_fast_fallback
 
         df = generate_dataset(n_samples=1500, seed=42)
         clf, reg = train_fast_fallback(df)
-        return clf, reg
+        return clf, reg, True
 
 
 @st.cache_data
@@ -546,9 +555,11 @@ def render_emergency_braking(clf, reg):
         road_type = st.selectbox("🛣️ Road type", ROAD_OPTIONS, key="eb_road")
         vehicle_type = st.selectbox("🚙 Vehicle type", VEHICLE_OPTIONS, key="eb_vehicle")
 
-    speed_kmh = st.slider("Speed (km/h)", float(ms_to_kmh(BASE_RANGES["speed"][0])), float(ms_to_kmh(BASE_RANGES["speed"][1])), 90.0, key="eb_speed")
+    st.session_state.setdefault("eb_speed", 90.0)
+    st.session_state.setdefault("eb_distance", 20.0)
+    speed_kmh = st.slider("Speed (km/h)", float(ms_to_kmh(BASE_RANGES["speed"][0])), float(ms_to_kmh(BASE_RANGES["speed"][1])), key="eb_speed")
     speed = kmh_to_ms(speed_kmh)
-    distance = st.slider("Following distance (m)", float(BASE_RANGES["distance"][0]), float(BASE_RANGES["distance"][1]), 20.0, key="eb_distance")
+    distance = st.slider("Following distance (m)", float(BASE_RANGES["distance"][0]), float(BASE_RANGES["distance"][1]), key="eb_distance")
 
     render_risk_assessment(clf, reg, "Emergency Braking", "Speed", speed, distance, weather, road_type, time_of_day, vehicle_type)
 
@@ -583,9 +594,12 @@ def render_dynamic_traffic(clf, reg):
         road_type = st.selectbox("🛣️ Road type", ROAD_OPTIONS, key="dt_road")
         vehicle_type = st.selectbox("🚙 Vehicle type", VEHICLE_OPTIONS, key="dt_vehicle")
 
-    your_speed_kmh = st.slider("Your speed (km/h)", float(ms_to_kmh(BASE_RANGES["speed"][0])), float(ms_to_kmh(BASE_RANGES["speed"][1])), 108.0, key="dt_your_speed")
-    traffic_speed_kmh = st.slider("Traffic ahead speed (km/h)", float(ms_to_kmh(BASE_RANGES["speed"][0])), float(ms_to_kmh(BASE_RANGES["speed"][1])), 100.0, key="dt_traffic_speed")
-    distance = st.slider("Following distance (m)", float(BASE_RANGES["distance"][0]), float(BASE_RANGES["distance"][1]), 20.0, key="dt_distance")
+    st.session_state.setdefault("dt_your_speed", 108.0)
+    st.session_state.setdefault("dt_traffic_speed", 100.0)
+    st.session_state.setdefault("dt_distance", 20.0)
+    your_speed_kmh = st.slider("Your speed (km/h)", float(ms_to_kmh(BASE_RANGES["speed"][0])), float(ms_to_kmh(BASE_RANGES["speed"][1])), key="dt_your_speed")
+    traffic_speed_kmh = st.slider("Traffic ahead speed (km/h)", float(ms_to_kmh(BASE_RANGES["speed"][0])), float(ms_to_kmh(BASE_RANGES["speed"][1])), key="dt_traffic_speed")
+    distance = st.slider("Following distance (m)", float(BASE_RANGES["distance"][0]), float(BASE_RANGES["distance"][1]), key="dt_distance")
 
     your_speed = kmh_to_ms(your_speed_kmh)
     traffic_speed = kmh_to_ms(traffic_speed_kmh)
@@ -731,13 +745,17 @@ def main():
         return
 
     try:
-        clf, reg = get_models()
+        clf, reg, used_fallback = get_models()
     except FileNotFoundError:
         st.error(
             "No trained models found. Run `python src/simulation/generate_dataset.py` "
             "then `python src/models/train.py` first to generate data and train the models."
         )
         return
+
+    if used_fallback and not st.session_state.get("_fallback_toast_shown"):
+        st.toast("Setting up the model for this session...", icon="⚙️")
+        st.session_state["_fallback_toast_shown"] = True
 
     if st.session_state.view == "emergency":
         render_emergency_braking(clf, reg)

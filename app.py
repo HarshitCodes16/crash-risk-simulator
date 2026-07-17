@@ -93,7 +93,7 @@ def get_models():
     try:
         return load_models()
     except Exception:
-        st.info("Saved models weren't compatible with this environment — training fresh models now (a few seconds)...")
+        st.toast("Setting up the model for this session...", icon="⚙️")
         from simulation.generate_dataset import generate_dataset
         from models.train import train_fast_fallback
 
@@ -226,23 +226,32 @@ def _render_presets(presets, prefix, is_dynamic):
 def _render_weather_autofill(prefix):
     with st.expander("📍 Auto-fill weather & time from a city (optional)"):
         city = st.text_input("City name", key=f"{prefix}_city_input", placeholder="e.g. Mumbai")
+        search_clicked = st.button("🔎 Search city", key=f"{prefix}_city_search")
+
+        if search_clicked and city.strip():
+            with st.spinner("Searching cities..."):
+                st.session_state[f"{prefix}_city_results"] = geocode_city_suggestions(city.strip(), count=5)
+                st.session_state[f"{prefix}_city_searched_for"] = city.strip()
+
+        suggestions = st.session_state.get(f"{prefix}_city_results", [])
+        searched_for = st.session_state.get(f"{prefix}_city_searched_for", "")
 
         selected_geo = None
-        if city.strip() and len(city.strip()) >= 2:
-            with st.spinner("Searching cities..."):
-                suggestions = geocode_city_suggestions(city.strip(), count=5)
-            if suggestions:
-                labels = [
-                    f"{s['name']}" + (f", {s['admin1']}" if s['admin1'] else "") + f", {s['country']}"
-                    for s in suggestions
-                ]
-                choice_idx = st.selectbox(
-                    "Did you mean:", options=list(range(len(labels))),
-                    format_func=lambda i: labels[i], key=f"{prefix}_city_choice",
-                )
-                selected_geo = suggestions[choice_idx]
-            else:
-                st.caption("No matching cities found — keep typing or check the spelling.")
+        if suggestions:
+            labels = [
+                f"{s['name']}" + (f", {s['admin1']}" if s['admin1'] else "") + f", {s['country']}"
+                for s in suggestions
+            ]
+            # Key includes the searched text itself, so a new search always
+            # creates a fresh dropdown (defaulting back to the top match)
+            # instead of keeping a previous search's selected index.
+            choice_idx = st.selectbox(
+                "Did you mean:", options=list(range(len(labels))),
+                format_func=lambda i: labels[i], key=f"{prefix}_city_choice_{searched_for}",
+            )
+            selected_geo = suggestions[choice_idx]
+        elif search_clicked:
+            st.caption("No matching cities found — check the spelling and search again.")
 
         if st.button("Fetch current weather", key=f"{prefix}_fetch_weather", disabled=selected_geo is None):
             with st.spinner("Fetching weather..."):
